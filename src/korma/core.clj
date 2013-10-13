@@ -689,12 +689,25 @@
                                          (body-fn)
                                          (where {fk-key (get % pk)})))))))
 
+(defn- assoc-one-entity [query-result ent body-fn pk fk-key]
+  "associate has-one or belongs-to entity
+    at entity-name key on present query results."
+  (assoc query-result
+        (keyword (:name ent))
+        (first 
+          (select ent 
+            (body-fn)
+            (where {pk (get query-result fk-key)})
+            (limit 1)))))
+
 (defn- with-now [rel query ent body-fn]
   (let [table (if (:alias rel)
                 [(:table ent) (:alias ent)]
                 (:table ent))
-        query (join query table (= (:pk rel) (:fk rel)))]
-    (sub-query query ent body-fn)))
+        fk-key (:fk-key rel)
+        pk (:pk ent)]
+    (post-query query (partial map 
+                        #(assoc-one-entity % ent body-fn pk fk-key)))))
 
 (defn- with-many-to-many [{:keys [lfk rfk rpk join-table]} query ent body-fn]
   (let [pk (get-in query [:ent :pk])
