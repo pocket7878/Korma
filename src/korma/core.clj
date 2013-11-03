@@ -316,6 +316,10 @@
   [query post]
   (update-in query [:post-queries] conj post))
 
+(defn fk-field [query field]
+  "Add an field-datum to query."
+  (update-in query [:fk-fields] conj field))
+
 (defn limit
   "Add a limit clause to a select query."
   [query v]
@@ -470,7 +474,10 @@
      (= *exec-mode* :dry-run) (do
                                 (println "dry run ::" sql "::" (vec params))
                                 (let [pk (-> query :ent :pk)
-                                      results (apply-posts query [{pk 1}])]
+                                      fields (-> query :fk-fields)
+                                      results (apply-posts query [(if (-> query :fk-fields)
+                                                                      (into {} (map (fn [k] {k 1}) (-> query :fk-fields)))
+                                                                      {pk 1})])]
                                   (first results)
                                   results))
      :else (let [results (db/do-query query)]
@@ -682,7 +689,7 @@
         fk-key (:fk-key rel)
         pk (get-in query [:ent :pk])
         table (keyword (eng/table-alias ent))]
-    (post-query query 
+    (post-query (fk-field query pk)
                 (partial map 
                          #(assoc % table
                                  (select ent
@@ -706,18 +713,19 @@
                 (:table ent))
         fk-key (:fk-key rel)
         pk (:pk ent)]
-    (post-query query (partial map 
-                        #(assoc-one-entity % ent body-fn pk fk-key)))))
+    (post-query (fk-field query fk-key)
+          (partial map #(assoc-one-entity % ent body-fn pk fk-key)))))
 
 (defn- with-many-to-many [{:keys [lfk rfk rpk join-table]} query ent body-fn]
   (let [pk (get-in query [:ent :pk])
         table (keyword (eng/table-alias ent))]
-    (post-query query (partial map
-                               #(assoc % table
-                                       (select ent
-                                               (join :inner join-table (= @rfk rpk))
-                                               (body-fn)
-                                               (where {@lfk (get % pk)})))))))
+    (post-query (fk-field query pk)
+          (partial map
+               #(assoc % table
+                       (select ent
+                               (join :inner join-table (= @rfk rpk))
+                               (body-fn)
+                               (where {@lfk (get % pk)})))))))
 
 (defn with* [query sub-ent body-fn]
   (let [rel (get-rel (:ent query) sub-ent)]
@@ -775,7 +783,7 @@
         fk-key (:fk-key rel)
         pk (get-in query [:ent :pk])
         table (keyword (eng/table-alias ent))]
-    (post-query query
+    (post-query (fk-field query fk-key)
                 (fn [rows]
                   (let [fks (map #(get % pk) rows)
                         child-rows (select ent
